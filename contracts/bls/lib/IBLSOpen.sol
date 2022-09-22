@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.7.0 <0.9.0;
 
-
 interface IBLS {
     function verifySingle(
         uint256[2] memory signature,
@@ -21,5 +20,4 @@ interface IBLS {
     ) external view returns (uint256[2] memory);
 
     function isZeroBLSKey(uint256[4] memory blsKey) external pure returns (bool);
-
 }
