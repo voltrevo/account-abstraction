@@ -4,6 +4,7 @@ pragma abicoder v2;
 
 import "../../bls/lib/IBLSOpen.sol"; // to use a deployed BLS library
 import "../../interfaces/UserOperation.sol";
+import "../../bls/BLSHelper.sol";
 
 import "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
@@ -400,11 +401,7 @@ contract VerificationGateway
 
     // --- <4337> ---
 
-    // These functions seem to exist to allow clients (aka nodes) to rely on logic defined on-chain
-    // so that they don't need to implement anything specific to any signature aggregation scheme.
-    // For our prototype we can do this specific implementation and make this work without these
-    // functions. Later, it might be necessary to add these for compatibility with clients relying
-    // on this generic technique.
+    // TODO
     // function validateUserOpSignature(
     //     UserOperation4337 calldata userOp,
     //     bool offChainSigCheck
@@ -413,9 +410,21 @@ contract VerificationGateway
     //     bytes memory sigForAggregation,
     //     bytes memory offChainSigInfo
     // ) {}
-    // function aggregateSignatures(
-    //     bytes[] calldata sigsForAggregation
-    // ) external view returns (bytes memory aggregatesSignature) {}
+
+    //copied from BLS.sol
+    uint256 public constant N = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
+
+    function aggregateSignatures(
+        bytes[] calldata signatures
+    ) external pure returns (bytes memory aggregateSignature) {
+        BLSHelper.XY[] memory points = new BLSHelper.XY[](signatures.length);
+        for (uint i = 0; i < points.length; i++) {
+            (uint x, uint y) = abi.decode(signatures[i], (uint, uint));
+            points[i] = BLSHelper.XY(x, y);
+        }
+        BLSHelper.XY memory sum = BLSHelper.sum(points, N);
+        return abi.encode(sum.x, sum.y);
+    }
 
     function validateSignatures(
         UserOperation[] calldata userOps,

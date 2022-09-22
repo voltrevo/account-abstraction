@@ -66,6 +66,73 @@ describe('BLSWallet (web3well)', () => {
 
     expect((await mockToken.balanceOf(wallet.address)).toNumber()).to.eq(1)
   })
+
+  it('Can mint tokens in two wallets with one signature via 4337 EntryPoint', async () => {
+    const {
+      signer,
+      entryPoint4337,
+      mockToken,
+      verificationGateway,
+      TestWallet
+    } = await Fixture(1)
+
+    const wallets = await Promise.all([
+      TestWallet(0),
+      TestWallet(1)
+    ])
+
+    const userOps = wallets.map(w => {
+      const callData = w.interface.encodeFunctionData(
+        'performOperation',
+        [
+          {
+            nonce: 0,
+            actions: [
+              {
+                ethValue: 0,
+                contractAddress: mockToken.address,
+                encodedFunction: mockToken.interface.encodeFunctionData(
+                  'mint',
+                  [w.address, 1]
+                )
+              }
+            ]
+          }
+        ]
+      )
+
+      const userOp: UserOperation = {
+        sender: w.address,
+        nonce: 0,
+        initCode: '0x',
+        callData,
+        callGasLimit: 1_000_000_000,
+        verificationGasLimit: 1_000_000_000,
+        preVerificationGas: 1_000_000_000,
+        maxFeePerGas: 0,
+        maxPriorityFeePerGas: 0,
+        paymasterAndData: '0x',
+        signature: '0x'
+      }
+
+      return userOp
+    })
+
+    const signatures = await Promise.all([0, 1].map(async i =>
+      hexConcat(wallets[i].blsSigner.sign(await verificationGateway.getRequestId(userOps[i])))
+    ))
+
+    const userOpAggregations: IEntryPoint.UserOpsPerAggregatorStruct = {
+      userOps,
+      aggregator: verificationGateway.address,
+      signature: await verificationGateway.aggregateSignatures(signatures)
+    }
+
+    await (await entryPoint4337.handleAggregatedOps([userOpAggregations], await signer.getAddress())).wait()
+
+    expect((await mockToken.balanceOf(wallets[0].address)).toNumber()).to.eq(1)
+    expect((await mockToken.balanceOf(wallets[1].address)).toNumber()).to.eq(1)
+  })
 })
 
 type BlsSigner = ReturnType<BlsSignerFactory['getSigner']>
