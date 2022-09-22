@@ -26,6 +26,7 @@ contract VerificationGateway
     IBLS public immutable blsLib;
     ProxyAdmin public immutable walletProxyAdmin;
     address public immutable blsWalletLogic;
+    address public immutable entryPoint4337;
     mapping(bytes32 => IWallet) public walletFromHash;
     mapping(IWallet => uint256[BLS_KEY_LEN]) public blsKeyFromWallet;
 
@@ -69,11 +70,13 @@ contract VerificationGateway
     constructor(
         IBLS bls,
         address blsWalletImpl,
-        address proxyAdmin
+        address proxyAdmin,
+        address _entryPoint4337
     ) {
         blsLib = bls;
         blsWalletLogic = blsWalletImpl;
         walletProxyAdmin = ProxyAdmin(proxyAdmin);
+        entryPoint4337 = _entryPoint4337;
     }
 
     /** Throw if bundle not valid or signature verification fails */
@@ -358,7 +361,7 @@ contract VerificationGateway
     }
 
     function getInitializeData() private view returns (bytes memory) {
-        return abi.encodeWithSignature("initialize(address,address)", address(this), address(0));
+        return abi.encodeWithSignature("initialize(address,address)", address(this), entryPoint4337);
     }
 
     modifier onlyWallet(bytes32 hash) {

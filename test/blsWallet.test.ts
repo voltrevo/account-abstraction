@@ -3,7 +3,7 @@ import { ethers } from 'hardhat'
 import * as hubbleBls from '@thehubbleproject/bls'
 import { arrayify, keccak256 } from 'ethers/lib/utils'
 
-import { BLSOpen__factory, ProxyAdmin__factory, VerificationGateway__factory } from '../typechain'
+import { BLSOpen__factory, EntryPoint__factory, ProxyAdmin__factory, VerificationGateway__factory } from '../typechain'
 import { BLSWallet__factory } from '../typechain/factories/contracts/samples/BLSWallet'
 
 const blsDomain = arrayify(keccak256('0xfeedbee5'))
@@ -12,7 +12,11 @@ describe('BLSWallet (web3well)', () => {
   it('deploys contracts', async () => {
     const signer = ethers.provider.getSigner()
 
-    const [blsOpen, blsWalletImpl, proxyAdmin] = await Promise.all([
+    const [entryPoint4337, blsOpen, blsWalletImpl, proxyAdmin] = await Promise.all([
+      (async () => await (await new EntryPoint__factory(signer).deploy(
+        ethers.utils.parseEther('1'),
+        100
+      )).deployed())(),
       (async () => await (await new BLSOpen__factory(signer).deploy()).deployed())(),
       (async () => await (await new BLSWallet__factory(signer).deploy()).deployed())(),
       (async () => await (await new ProxyAdmin__factory(signer).deploy()).deployed())()
@@ -21,7 +25,8 @@ describe('BLSWallet (web3well)', () => {
     const vg = await (await new VerificationGateway__factory(signer).deploy(
       blsOpen.address,
       blsWalletImpl.address,
-      proxyAdmin.address
+      proxyAdmin.address,
+      entryPoint4337.address
     )).deployed()
 
     const signerFactory = await hubbleBls.signer.BlsSignerFactory.new()
@@ -39,5 +44,3 @@ describe('BLSWallet (web3well)', () => {
     expect(await ethers.provider.getCode(wallet.address)).not.to.eq('0x')
   })
 })
-
-export {}
