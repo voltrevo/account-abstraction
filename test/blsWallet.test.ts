@@ -1,28 +1,30 @@
 import { expect } from 'chai'
 import { ethers } from 'hardhat'
 import * as hubbleBls from '@thehubbleproject/bls'
-import { arrayify, keccak256 } from 'ethers/lib/utils'
+import { arrayify, hexConcat, keccak256 } from 'ethers/lib/utils'
 
-import { BLSOpen__factory, EntryPoint__factory, ProxyAdmin__factory, VerificationGateway__factory } from '../typechain'
+import { BLSOpen__factory, EntryPoint__factory, IEntryPoint, MockERC20__factory, ProxyAdmin__factory, VerificationGateway__factory } from '../typechain'
 import { BLSWallet__factory } from '../typechain/factories/contracts/samples/BLSWallet'
+import { UserOperation } from './UserOperation'
 
 const blsDomain = arrayify(keccak256('0xfeedbee5'))
 
 describe('BLSWallet (web3well)', () => {
-  it('deploys contracts', async () => {
+  it('Can mint a token via 4337 EntryPoint', async () => {
     const signer = ethers.provider.getSigner()
 
-    const [entryPoint4337, blsOpen, blsWalletImpl, proxyAdmin] = await Promise.all([
+    const [entryPoint4337, blsOpen, blsWalletImpl, proxyAdmin, mockToken] = await Promise.all([
       (async () => await (await new EntryPoint__factory(signer).deploy(
         ethers.utils.parseEther('1'),
         100
       )).deployed())(),
       (async () => await (await new BLSOpen__factory(signer).deploy()).deployed())(),
       (async () => await (await new BLSWallet__factory(signer).deploy()).deployed())(),
-      (async () => await (await new ProxyAdmin__factory(signer).deploy()).deployed())()
+      (async () => await (await new ProxyAdmin__factory(signer).deploy()).deployed())(),
+      (async () => await (await new MockERC20__factory(signer).deploy('Mock Token', 'MOK', 0)).deployed())()
     ])
 
-    const vg = await (await new VerificationGateway__factory(signer).deploy(
+    const verificationGateway = await (await new VerificationGateway__factory(signer).deploy(
       blsOpen.address,
       blsWalletImpl.address,
       proxyAdmin.address,
@@ -35,14 +37,55 @@ describe('BLSWallet (web3well)', () => {
     const walletSigner = signerFactory.getSigner(blsDomain, privateKey)
 
     const wallet = BLSWallet__factory.connect(
-      await vg.callStatic.getOrCreateWallet(walletSigner.pubkey),
+      await verificationGateway.callStatic.getOrCreateWallet(walletSigner.pubkey),
       signer
     )
 
     expect(await ethers.provider.getCode(wallet.address)).to.eq('0x')
-    await (await vg.getOrCreateWallet(walletSigner.pubkey)).wait()
+    await (await verificationGateway.getOrCreateWallet(walletSigner.pubkey)).wait()
     expect(await ethers.provider.getCode(wallet.address)).not.to.eq('0x')
 
-    // entryPoint4337.handleAggregatedOps(0, await signer.getAddress())
+    const callData = wallet.interface.encodeFunctionData(
+      'performOperation',
+      [
+        {
+          nonce: 0,
+          actions: [
+            {
+              ethValue: 0,
+              contractAddress: mockToken.address,
+              encodedFunction: mockToken.interface.encodeFunctionData(
+                'mint',
+                [wallet.address, 1]
+              )
+            }
+          ]
+        }
+      ]
+    )
+
+    const userOp: UserOperation = {
+      sender: wallet.address,
+      nonce: 0,
+      initCode: '0x',
+      callData,
+      callGasLimit: 1_000_000_000,
+      verificationGasLimit: 1_000_000_000,
+      preVerificationGas: 1_000_000_000,
+      maxFeePerGas: 0,
+      maxPriorityFeePerGas: 0,
+      paymasterAndData: '0x',
+      signature: '0x'
+    }
+
+    const userOpAggregations: IEntryPoint.UserOpsPerAggregatorStruct = {
+      userOps: [userOp],
+      aggregator: verificationGateway.address,
+      signature: hexConcat(walletSigner.sign(await verificationGateway.getRequestId(userOp)))
+    }
+
+    await (await entryPoint4337.handleAggregatedOps([userOpAggregations], await signer.getAddress())).wait()
+
+    expect((await mockToken.balanceOf(wallet.address)).toNumber()).to.eq(1)
   })
 })
