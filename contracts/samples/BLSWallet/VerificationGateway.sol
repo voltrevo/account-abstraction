@@ -289,7 +289,7 @@ contract VerificationGateway
      */
     function getOrCreateWallet(
         uint256[BLS_KEY_LEN] memory publicKey
-    ) private returns (IWallet) {
+    ) public returns (IWallet) {
         bytes32 publicKeyHash = keccak256(abi.encodePacked(publicKey));
         IWallet blsWallet = walletFromHash[publicKeyHash];
         // publicKeyHash does not yet refer to a wallet, create one then update mappings.
