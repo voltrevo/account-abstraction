@@ -11,39 +11,13 @@ const blsDomain = arrayify(keccak256('0xfeedbee5'))
 
 describe('BLSWallet (web3well)', () => {
   it('Can mint a token via 4337 EntryPoint', async () => {
-    const signer = ethers.provider.getSigner()
-
-    const [entryPoint4337, blsOpen, blsWalletImpl, proxyAdmin, mockToken] = await Promise.all([
-      (async () => await (await new EntryPoint__factory(signer).deploy(
-        ethers.utils.parseEther('1'),
-        100
-      )).deployed())(),
-      (async () => await (await new BLSOpen__factory(signer).deploy()).deployed())(),
-      (async () => await (await new BLSWallet__factory(signer).deploy()).deployed())(),
-      (async () => await (await new ProxyAdmin__factory(signer).deploy()).deployed())(),
-      (async () => await (await new MockERC20__factory(signer).deploy('Mock Token', 'MOK', 0)).deployed())()
-    ])
-
-    const verificationGateway = await (await new VerificationGateway__factory(signer).deploy(
-      blsOpen.address,
-      blsWalletImpl.address,
-      proxyAdmin.address,
-      entryPoint4337.address
-    )).deployed()
-
-    const signerFactory = await hubbleBls.signer.BlsSignerFactory.new()
-
-    const privateKey = '0x0001020304050607080910111213141516171819202122232425262728293031'
-    const walletSigner = signerFactory.getSigner(blsDomain, privateKey)
-
-    const wallet = BLSWallet__factory.connect(
-      await verificationGateway.callStatic.getOrCreateWallet(walletSigner.pubkey),
-      signer
-    )
-
-    expect(await ethers.provider.getCode(wallet.address)).to.eq('0x')
-    await (await verificationGateway.getOrCreateWallet(walletSigner.pubkey)).wait()
-    expect(await ethers.provider.getCode(wallet.address)).not.to.eq('0x')
+    const {
+      signer,
+      entryPoint4337,
+      mockToken,
+      verificationGateway,
+      walletsAndSigners: [{ wallet, walletSigner }]
+    } = await Fixture(1)
 
     const callData = wallet.interface.encodeFunctionData(
       'performOperation',
@@ -89,3 +63,59 @@ describe('BLSWallet (web3well)', () => {
     expect((await mockToken.balanceOf(wallet.address)).toNumber()).to.eq(1)
   })
 })
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+async function Fixture (walletCount: number) {
+  const signer = ethers.provider.getSigner()
+
+  const [entryPoint4337, blsOpen, blsWalletImpl, proxyAdmin, mockToken] = await Promise.all([
+    (async () => await (await new EntryPoint__factory(signer).deploy(
+      ethers.utils.parseEther('1'),
+      100
+    )).deployed())(),
+    (async () => await (await new BLSOpen__factory(signer).deploy()).deployed())(),
+    (async () => await (await new BLSWallet__factory(signer).deploy()).deployed())(),
+    (async () => await (await new ProxyAdmin__factory(signer).deploy()).deployed())(),
+    (async () => await (await new MockERC20__factory(signer).deploy('Mock Token', 'MOK', 0)).deployed())()
+  ])
+
+  const verificationGateway = await (await new VerificationGateway__factory(signer).deploy(
+    blsOpen.address,
+    blsWalletImpl.address,
+    proxyAdmin.address,
+    entryPoint4337.address
+  )).deployed()
+
+  const signerFactory = await hubbleBls.signer.BlsSignerFactory.new()
+
+  const walletsAndSigners = await Promise.all([...new Array(walletCount)].map(async (_, i) => {
+    const privateKey = keccak256(new TextEncoder().encode(`test-wallet-${i}`))
+
+    const walletSigner = signerFactory.getSigner(blsDomain, privateKey)
+
+    const wallet = BLSWallet__factory.connect(
+      await verificationGateway.callStatic.getOrCreateWallet(walletSigner.pubkey),
+      signer
+    )
+
+    expect(await ethers.provider.getCode(wallet.address)).to.eq('0x')
+    await (await verificationGateway.getOrCreateWallet(walletSigner.pubkey)).wait()
+    expect(await ethers.provider.getCode(wallet.address)).not.to.eq('0x')
+
+    return {
+      wallet,
+      walletSigner
+    }
+  }))
+
+  return {
+    signer,
+    entryPoint4337,
+    blsOpen,
+    blsWalletImpl,
+    proxyAdmin,
+    mockToken,
+    verificationGateway,
+    walletsAndSigners
+  }
+}
