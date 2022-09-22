@@ -6,6 +6,8 @@ import { arrayify, hexConcat, keccak256 } from 'ethers/lib/utils'
 import { BLSOpen__factory, EntryPoint__factory, IEntryPoint, MockERC20__factory, ProxyAdmin__factory, VerificationGateway__factory } from '../typechain'
 import { BLSWallet__factory } from '../typechain/factories/contracts/samples/BLSWallet'
 import { UserOperation } from './UserOperation'
+import { BLSWallet } from '../typechain/contracts/samples/BLSWallet'
+import { BlsSignerFactory } from '@thehubbleproject/bls/dist/signer'
 
 const blsDomain = arrayify(keccak256('0xfeedbee5'))
 
@@ -16,8 +18,10 @@ describe('BLSWallet (web3well)', () => {
       entryPoint4337,
       mockToken,
       verificationGateway,
-      walletsAndSigners: [{ wallet, walletSigner }]
+      TestWallet
     } = await Fixture(1)
+
+    const wallet = await TestWallet(0)
 
     const callData = wallet.interface.encodeFunctionData(
       'performOperation',
@@ -55,7 +59,7 @@ describe('BLSWallet (web3well)', () => {
     const userOpAggregations: IEntryPoint.UserOpsPerAggregatorStruct = {
       userOps: [userOp],
       aggregator: verificationGateway.address,
-      signature: hexConcat(walletSigner.sign(await verificationGateway.getRequestId(userOp)))
+      signature: hexConcat(wallet.blsSigner.sign(await verificationGateway.getRequestId(userOp)))
     }
 
     await (await entryPoint4337.handleAggregatedOps([userOpAggregations], await signer.getAddress())).wait()
@@ -63,6 +67,8 @@ describe('BLSWallet (web3well)', () => {
     expect((await mockToken.balanceOf(wallet.address)).toNumber()).to.eq(1)
   })
 })
+
+type BlsSigner = ReturnType<BlsSignerFactory['getSigner']>
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 async function Fixture (walletCount: number) {
@@ -88,26 +94,6 @@ async function Fixture (walletCount: number) {
 
   const signerFactory = await hubbleBls.signer.BlsSignerFactory.new()
 
-  const walletsAndSigners = await Promise.all([...new Array(walletCount)].map(async (_, i) => {
-    const privateKey = keccak256(new TextEncoder().encode(`test-wallet-${i}`))
-
-    const walletSigner = signerFactory.getSigner(blsDomain, privateKey)
-
-    const wallet = BLSWallet__factory.connect(
-      await verificationGateway.callStatic.getOrCreateWallet(walletSigner.pubkey),
-      signer
-    )
-
-    expect(await ethers.provider.getCode(wallet.address)).to.eq('0x')
-    await (await verificationGateway.getOrCreateWallet(walletSigner.pubkey)).wait()
-    expect(await ethers.provider.getCode(wallet.address)).not.to.eq('0x')
-
-    return {
-      wallet,
-      walletSigner
-    }
-  }))
-
   return {
     signer,
     entryPoint4337,
@@ -116,6 +102,25 @@ async function Fixture (walletCount: number) {
     proxyAdmin,
     mockToken,
     verificationGateway,
-    walletsAndSigners
+    TestWallet: async (index: number): Promise<BLSWallet & { blsSigner: BlsSigner }> => {
+      const privateKey = keccak256(new TextEncoder().encode(`test-wallet-${index}`))
+
+      const walletSigner = signerFactory.getSigner(blsDomain, privateKey)
+
+      const wallet = BLSWallet__factory.connect(
+        await verificationGateway.callStatic.getOrCreateWallet(walletSigner.pubkey),
+        signer
+      )
+
+      expect(await ethers.provider.getCode(wallet.address)).to.eq('0x')
+      await (await verificationGateway.getOrCreateWallet(walletSigner.pubkey)).wait()
+      expect(await ethers.provider.getCode(wallet.address)).not.to.eq('0x')
+
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      return {
+        ...wallet,
+        blsSigner: walletSigner
+      } as BLSWallet & { blsSigner: BlsSigner }
+    }
   }
 }
