@@ -427,7 +427,7 @@ contract VerificationGateway
         for (uint256 i = 0; i < userOps.length; i++) {
             messages[i] = blsLib.hashToPoint(
                 BLS_DOMAIN,
-                abi.encode(userOps[i])
+                abi.encodePacked(getRequestId(userOps[i]))
             );
 
             senderPublicKeys[i] = blsKeyFromWallet[IWallet(userOps[i].sender)];
@@ -440,6 +440,60 @@ contract VerificationGateway
         );
 
         require(verified, "VG: Sig not verified");
+    }
+
+    /**
+     * get a hash of userOp
+     * NOTE: this hash is not the same as UserOperation.hash()
+     *  (slightly less efficient, since it uses memory userOp)
+     */
+    function getUserOpHash(UserOperation memory userOp) internal pure returns (bytes32) {
+        return keccak256(abi.encode(
+                userOp.sender,
+                userOp.nonce,
+                keccak256(userOp.initCode),
+                keccak256(userOp.callData),
+                userOp.callGasLimit,
+                userOp.verificationGasLimit,
+                userOp.preVerificationGas,
+                userOp.maxFeePerGas,
+                userOp.maxPriorityFeePerGas,
+                keccak256(userOp.paymasterAndData)
+            ));
+    }
+
+    /**
+     * return the BLS "message" for the given UserOp.
+     * the wallet should sign this value using its public-key
+     */
+    function userOpToMessage(UserOperation memory userOp) public view returns (uint256[2] memory) {
+        bytes32 hashPublicKey = _getUserOpPubkeyHash(userOp);
+        return _userOpToMessage(userOp, hashPublicKey);
+    }
+
+    function _userOpToMessage(UserOperation memory userOp, bytes32 publicKeyHash) internal view returns (uint256[2] memory) {
+        bytes32 requestId = _getRequestId(userOp, publicKeyHash);
+        return blsLib.hashToPoint(BLS_DOMAIN, abi.encodePacked(requestId));
+    }
+
+    //return the public-key hash of a userOp.
+    // if its a constructor UserOp, then return constructor hash.
+    function _getUserOpPubkeyHash(UserOperation memory userOp) internal view returns (bytes32 hashPublicKey) {
+        if (userOp.initCode.length == 0) {
+            uint256[4] memory publicKey = blsKeyFromWallet[IWallet(userOp.sender)];
+            hashPublicKey = keccak256(abi.encode(publicKey));
+        } else {
+            hashPublicKey = keccak256(userOp.initCode);
+        }
+    }
+
+    function getRequestId(UserOperation memory userOp) public view returns (bytes32) {
+        bytes32 hashPublicKey = _getUserOpPubkeyHash(userOp);
+        return _getRequestId(userOp, hashPublicKey);
+    }
+
+    function _getRequestId(UserOperation memory userOp, bytes32 hashPublicKey) internal view returns (bytes32) {
+        return keccak256(abi.encode(getUserOpHash(userOp), hashPublicKey, address(this), block.chainid));
     }
 
     // --- </4337> ---

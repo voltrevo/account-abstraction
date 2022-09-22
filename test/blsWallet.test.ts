@@ -42,5 +42,7 @@ describe('BLSWallet (web3well)', () => {
     expect(await ethers.provider.getCode(wallet.address)).to.eq('0x')
     await (await vg.getOrCreateWallet(walletSigner.pubkey)).wait()
     expect(await ethers.provider.getCode(wallet.address)).not.to.eq('0x')
+
+    // entryPoint4337.handleAggregatedOps(0, await signer.getAddress())
   })
 })
